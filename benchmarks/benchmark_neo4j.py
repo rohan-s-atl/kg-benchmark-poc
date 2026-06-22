@@ -1,9 +1,11 @@
 """
 benchmark_neo4j.py
-POC: Knowledge Graph Cost & Performance Benchmark
-Tool: Neo4j AuraDB
-Workload: 100K-triple enterprise org/company dataset (Wikidata-style)
+Benchmarks Neo4j AuraDB on a 100K-triple enterprise knowledge graph workload.
+Measures ingestion speed and query latency across 5 query types that simulate
+what an AI agent would run when retrieving context from a knowledge graph.
+
 Output: results/neo4j_results.json
+Run from repo root: python run_all.py --skip-neptune
 """
 
 from dotenv import load_dotenv
@@ -18,27 +20,28 @@ from datetime import datetime
 try:
     from neo4j import GraphDatabase
 except ImportError:
-    raise SystemExit("Install dependency: pip install neo4j")
+    raise SystemExit("Missing dependency: pip install neo4j")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
-# ══════════════════════════════════════════════════════════════════════════════
-NEO4J_URI      = os.getenv("NEO4J_URI",      "neo4j+s://<your-aura-instance>.databases.neo4j.io")
+NEO4J_URI      = os.getenv("NEO4J_URI",      "neo4j+s://<your-instance>.databases.neo4j.io")
 NEO4J_USER     = os.getenv("NEO4J_USER",     "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "<your-password>")
 
-TRIPLE_COUNT   = 100_000
-QUERY_RUNS     = 5
-RESULTS_DIR    = "results"
-# ══════════════════════════════════════════════════════════════════════════════
+TRIPLE_COUNT = 100_000
+QUERY_RUNS   = 5
+RESULTS_DIR  = "results"
 
 
-def generate_dataset(n_triples: int):
+def generate_dataset(n_triples):
+    """
+    Generates a synthetic enterprise knowledge graph as (subject, predicate, object) triples.
+    Entities represent companies, employees, products, and locations — modeled after
+    the structure of a real enterprise knowledge base.
+    """
     random.seed(42)
-    companies  = [f"Company_{i}"   for i in range(500)]
-    employees  = [f"Employee_{i}"  for i in range(2000)]
-    products   = [f"Product_{i}"   for i in range(1000)]
-    locations  = [f"Location_{i}"  for i in range(200)]
+    companies  = [f"Company_{i}"  for i in range(500)]
+    employees  = [f"Employee_{i}" for i in range(2000)]
+    products   = [f"Product_{i}"  for i in range(1000)]
+    locations  = [f"Location_{i}" for i in range(200)]
     industries = ["Finance", "Healthcare", "Technology", "Manufacturing",
                   "Retail", "Energy", "Logistics", "Media"]
 
@@ -67,16 +70,17 @@ def generate_dataset(n_triples: int):
     return triples[:n_triples]
 
 
-def ingest(driver, triples: list) -> dict:
+def ingest(driver, triples):
     """
-    Two-phase ingestion:
-    1. Bulk CREATE all unique nodes first (fast, no duplicate checking)
-    2. Bulk CREATE all relationships
-    This matches Neptune's approach of no duplicate checking during ingestion.
+    Two-phase bulk ingestion:
+    1. CREATE all unique nodes (no duplicate checking for speed)
+    2. CREATE all relationships after building an index
+
+    This approach is equivalent to Neptune's SPARQL UPDATE behavior
+    and gives a fair apples-to-apples ingestion comparison.
     """
     print(f"[Neo4j] Ingesting {len(triples):,} triples...")
 
-    # Collect unique nodes and edges
     nodes = set()
     edges = []
     for s, p, o in triples:
@@ -86,23 +90,15 @@ def ingest(driver, triples: list) -> dict:
 
     node_list  = [{"name": n} for n in nodes]
     batch_size = 2000
-
-    t_start = time.perf_counter()
+    t_start    = time.perf_counter()
 
     with driver.session() as session:
-        # Phase 1: create all nodes in bulk
-        print(f"  Creating {len(node_list):,} unique nodes...")
-        node_batches = [node_list[i:i+batch_size] for i in range(0, len(node_list), batch_size)]
-        for batch in node_batches:
-            session.run(
-                "UNWIND $rows AS row CREATE (:Entity {name: row.name})",
-                rows=batch
-            )
+        print(f"  Creating {len(node_list):,} nodes...")
+        for batch in [node_list[i:i+batch_size] for i in range(0, len(node_list), batch_size)]:
+            session.run("UNWIND $rows AS row CREATE (:Entity {name: row.name})", rows=batch)
 
-        # Create index for fast lookup during edge creation
         session.run("CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.name)")
 
-        # Phase 2: create all relationships in bulk
         print(f"  Creating {len(edges):,} relationships...")
         edge_batches = [edges[i:i+batch_size] for i in range(0, len(edges), batch_size)]
         for idx, batch in enumerate(edge_batches):
@@ -116,16 +112,15 @@ def ingest(driver, triples: list) -> dict:
                 rows=batch
             )
             if (idx + 1) % 5 == 0:
-                pct = (idx + 1) / len(edge_batches) * 100
-                print(f"  {pct:.0f}% relationships", end="\r")
+                print(f"  {((idx+1)/len(edge_batches)*100):.0f}%", end="\r")
 
     elapsed = time.perf_counter() - t_start
-    print(f"\n[Neo4j] Ingestion complete in {elapsed:.2f}s")
+    print(f"\n[Neo4j] Done in {elapsed:.2f}s")
     return {
         "total_triples":      len(triples),
         "elapsed_seconds":    round(elapsed, 3),
         "triples_per_second": round(len(triples) / elapsed, 1),
-        "method":             "Bulk CREATE nodes then relationships (no duplicate checking)",
+        "method":             "Bulk CREATE (two-phase: nodes then relationships)",
     }
 
 
@@ -152,7 +147,7 @@ QUERIES = {
         "params": {"name": "Company_42"},
     },
     "Q4_keyword_search": {
-        "description": "Prefix search across all entity names",
+        "description": "Prefix search across entity names",
         "cypher": """
             MATCH (e:Entity)
             WHERE e.name STARTS WITH $prefix
@@ -161,7 +156,7 @@ QUERIES = {
         "params": {"prefix": "Employee_1"},
     },
     "Q5_aggregation": {
-        "description": "Count relationships per type (subgraph summary)",
+        "description": "Count relationships per type",
         "cypher": """
             MATCH (a:Entity)-[r:RELATION]->(b:Entity)
             RETURN r.type, count(*) AS cnt
@@ -172,11 +167,11 @@ QUERIES = {
 }
 
 
-def run_queries(driver, n_runs: int) -> dict:
+def run_queries(driver, n_runs):
     results = {}
     with driver.session() as session:
         for qid, q in QUERIES.items():
-            print(f"[Neo4j] Running {qid} ({n_runs}x)...")
+            print(f"[Neo4j] {qid} ({n_runs} runs)...")
             latencies = []
             for _ in range(n_runs):
                 t0 = time.perf_counter()
@@ -194,11 +189,9 @@ def run_queries(driver, n_runs: int) -> dict:
 
 
 def cleanup(driver):
-    print("[Neo4j] Cleaning up test data...")
+    print("[Neo4j] Cleaning up...")
     with driver.session() as session:
-        # Drop index first
         session.run("DROP INDEX entity_name IF EXISTS")
-        # Delete in batches to avoid memory issues
         while True:
             result = session.run(
                 "MATCH (n:Entity) WITH n LIMIT 10000 DETACH DELETE n RETURN count(n) AS cnt"
@@ -208,15 +201,15 @@ def cleanup(driver):
     print("[Neo4j] Done.")
 
 
-def estimate_cost(ingestion: dict, queries: dict) -> dict:
+def estimate_cost():
     return {
-        "free_tier_eligible": True,
-        "free_tier_limits": "200K nodes, 400K relationships",
+        "free_tier_eligible":         True,
+        "free_tier_limits":           "200K nodes, 400K relationships",
         "professional_price_per_gib_hr": 0.09,
         "estimated_monthly_1gib_usd": 65,
         "estimated_monthly_4gib_usd": 260,
-        "note": "100K triples fits comfortably in AuraDB Free tier. "
-                "Production enterprise scale (10M+ triples) requires Professional."
+        "note": "100K triples fits in the AuraDB free tier. "
+                "Production workloads at 10M+ triples require a paid plan."
     }
 
 
@@ -224,7 +217,7 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     print("=" * 60)
-    print("  Neo4j AuraDB — Enterprise Knowledge Graph Benchmark")
+    print("  Neo4j AuraDB — Knowledge Graph Benchmark")
     print("=" * 60)
 
     print(f"[Neo4j] Connecting to {NEO4J_URI}...")
@@ -232,11 +225,10 @@ def main():
     driver.verify_connectivity()
     print("[Neo4j] Connected.\n")
 
-    triples = generate_dataset(TRIPLE_COUNT)
-
+    triples         = generate_dataset(TRIPLE_COUNT)
     ingestion_stats = ingest(driver, triples)
     query_stats     = run_queries(driver, QUERY_RUNS)
-    cost_info       = estimate_cost(ingestion_stats, query_stats)
+    cost_info       = estimate_cost()
 
     cleanup(driver)
     driver.close()
@@ -249,11 +241,11 @@ def main():
         "queries":   query_stats,
         "cost":      cost_info,
         "dev_notes": [
-            "Cypher query language — easy learning curve",
-            "AuraDB Free tier adequate for POC and small enterprise workloads",
-            "Native graph storage (index-free adjacency) — fast traversal",
-            "No SPARQL support — not ideal for RDF/OWL ontology-heavy workloads",
-            "Excellent Python driver with async support",
+            "Cypher is intuitive — low barrier to entry for new developers",
+            "Free tier covers this entire 100K triple workload at no cost",
+            "Index-free adjacency makes traversal fast without manual index tuning",
+            "No SPARQL support — a limitation for RDF/OWL-heavy enterprise ontologies",
+            "Python driver is well-maintained with good async support",
         ]
     }
 
@@ -261,8 +253,7 @@ def main():
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
 
-    print(f"\n[Neo4j] Results saved to {out_path}")
-    print(json.dumps(output, indent=2))
+    print(f"\n[Neo4j] Results written to {out_path}")
 
 
 if __name__ == "__main__":

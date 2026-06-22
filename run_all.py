@@ -1,140 +1,106 @@
 """
 run_all.py
-Master orchestrator for the Knowledge Graph Benchmark POC.
-Runs all benchmark scripts sequentially, then generates the HTML report.
+Runs the Neo4j and Neptune benchmarks sequentially, then generates the HTML report.
 
 Usage:
-  python run_all.py
-
-Optional flags:
-  --skip-neo4j       Skip Neo4j benchmark
-  --skip-neptune     Skip Neptune benchmark
-  --no-cleanup       Keep test data in each database after benchmarking
+  python run_all.py                  # run both
+  python run_all.py --skip-neptune   # Neo4j only (runs locally)
+  python run_all.py --skip-neo4j     # Neptune only
 """
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import argparse
 import importlib.util
-import json
 import os
-import sys
 import time
 from datetime import datetime
 
 RESULTS_DIR = "results"
 
 
-def load_module(path: str, name: str):
+def load_module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
     mod  = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
-def section(title: str):
-    width = 62
-    print("\n" + "═" * width)
-    print(f"  {title}")
-    print("═" * width)
-
-
-def check_env():
-    """Warn about missing credentials before starting."""
-    checks = {
-        "Neo4j":   ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"],
-        "Neptune": ["NEPTUNE_ENDPOINT"],
-    }
-    warnings = []
-    for tool, keys in checks.items():
-        missing = [k for k in keys if not os.getenv(k)]
-        if missing:
-            warnings.append(f"  {tool}: missing {', '.join(missing)}")
-    if warnings:
-        print("\n⚠  Missing environment variables (will use placeholder defaults):")
-        for w in warnings:
-            print(w)
-        print("  Edit the CONFIG block at the top of each benchmark script,")
-        print("  or export the variables before running.\n")
-
-
-def run_benchmark(script_path: str, tool_name: str) -> dict | None:
-    section(f"Running: {tool_name}")
+def run_benchmark(script_path, tool_name):
+    print(f"\n{'='*62}")
+    print(f"  {tool_name}")
+    print(f"{'='*62}")
     t0 = time.perf_counter()
     try:
         mod = load_module(script_path, tool_name.lower().replace(" ", "_"))
         mod.main()
         elapsed = time.perf_counter() - t0
-        print(f"\n✓ {tool_name} completed in {elapsed:.1f}s")
+        print(f"\n✓ {tool_name} finished in {elapsed:.1f}s")
         return {"tool": tool_name, "status": "success", "elapsed": round(elapsed, 1)}
     except SystemExit as e:
-        print(f"\n✗ {tool_name} exited: {e}")
+        print(f"\n✗ {tool_name} exited early: {e}")
         return {"tool": tool_name, "status": "failed", "error": str(e)}
     except Exception as e:
         print(f"\n✗ {tool_name} error: {e}")
         return {"tool": tool_name, "status": "failed", "error": str(e)}
 
 
-def run_report():
-    section("Generating HTML Report")
-    try:
-        mod = load_module("generate_report.py", "generate_report")
-        mod.main()
-        print("✓ Report generated: results/knowledge_graph_benchmark_report.html")
-        return True
-    except Exception as e:
-        print(f"✗ Report generation failed: {e}")
-        return False
-
-
-def print_summary(run_log: list):
-    section("Run Summary")
-    for entry in run_log:
-        icon   = "✓" if entry["status"] == "success" else "✗"
-        detail = f"({entry['elapsed']}s)" if entry["status"] == "success" else f"({entry.get('error', '')})"
-        print(f"  {icon}  {entry['tool']:<20} {detail}")
+def check_credentials():
+    checks = {
+        "Neo4j":   ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"],
+        "Neptune": ["NEPTUNE_ENDPOINT"],
+    }
+    for tool, keys in checks.items():
+        missing = [k for k in keys if not os.getenv(k)]
+        if missing:
+            print(f"  Warning: {tool} missing env vars: {', '.join(missing)}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run all KG benchmark scripts.")
-    parser.add_argument("--skip-neo4j",   action="store_true", help="Skip Neo4j")
-    parser.add_argument("--skip-neptune", action="store_true", help="Skip Neptune")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-neo4j",   action="store_true")
+    parser.add_argument("--skip-neptune", action="store_true")
     args = parser.parse_args()
 
-    print("\n╔══════════════════════════════════════════════════════════╗")
-    print("║   Knowledge Graph Benchmark POC — Full Suite             ║")
-    print("║   AWS Neptune  ·  Neo4j AuraDB                           ║")
-    print(f"║   {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'):<54}║")
-    print("╚══════════════════════════════════════════════════════════╝")
+    print(f"\n  Knowledge Graph Benchmark — {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  Neo4j AuraDB vs AWS Neptune\n")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    check_env()
-
-    run_log = []
+    check_credentials()
 
     benchmarks = [
-        ("benchmarks/benchmark_neo4j.py",    "Neo4j AuraDB",  args.skip_neo4j),
-        ("benchmarks/benchmark_neptune.py",  "AWS Neptune",   args.skip_neptune),
+        ("benchmarks/benchmark_neo4j.py",   "Neo4j AuraDB", args.skip_neo4j),
+        ("benchmarks/benchmark_neptune.py",  "AWS Neptune",  args.skip_neptune),
     ]
 
+    run_log = []
     for script, name, skip in benchmarks:
         if skip:
-            print(f"\n  -- Skipping {name} (--skip flag set)")
+            print(f"\n  Skipping {name}")
             continue
         if not os.path.exists(script):
-            print(f"\n  -- {script} not found, skipping {name}")
+            print(f"\n  {script} not found, skipping")
             continue
         result = run_benchmark(script, name)
         if result:
             run_log.append(result)
 
-    # Only generate report if at least one benchmark produced results
     result_files = [f for f in os.listdir(RESULTS_DIR) if f.endswith("_results.json")]
     if result_files:
-        run_report()
-    else:
-        print("\n  No result files found — skipping report generation.")
+        print(f"\n{'='*62}\n  Generating Report\n{'='*62}")
+        try:
+            mod = load_module("generate_report.py", "generate_report")
+            mod.main()
+        except Exception as e:
+            print(f"  Report generation failed: {e}")
 
-    print_summary(run_log)
-    print(f"\n  Done. Open results/knowledge_graph_benchmark_report.html to view the report.\n")
+    print(f"\n{'='*62}\n  Summary\n{'='*62}")
+    for entry in run_log:
+        status = f"✓ {entry['elapsed']}s" if entry["status"] == "success" else f"✗ {entry.get('error','')}"
+        print(f"  {entry['tool']:<20} {status}")
+
+    print(f"\n  Report: results/knowledge_graph_benchmark_report.html\n")
 
 
 if __name__ == "__main__":
