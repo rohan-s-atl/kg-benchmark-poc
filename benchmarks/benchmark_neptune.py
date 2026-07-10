@@ -21,13 +21,30 @@ except ImportError:
     raise SystemExit("Missing dependency: pip install requests")
 
 # Update this to your cluster's writer endpoint
-NEPTUNE_ENDPOINT = "https://<your-cluster>.cluster.us-east-1.neptune.amazonaws.com:8182"
+NEPTUNE_ENDPOINT = "https://kg-bench.cluster-c6vu88s8s7lr.us-east-1.neptune.amazonaws.com:8182"
 
 TRIPLE_COUNT = 100_000
-QUERY_RUNS   = 5
+QUERY_RUNS   = 20
 RESULTS_DIR  = "results"
 BASE_URI     = "http://enterprise.poc/entity/"
 GRAPH        = "http://enterprise.poc/graph"
+
+# Entities used to vary query parameters so results aren't skewed by one
+# entity's particular position/degree in the graph.
+LOOKUP_ENTITIES  = ["Company_10", "Company_42", "Company_100", "Company_200", "Company_350"]
+KEYWORD_PREFIXES = ["Employee_1", "Employee_5", "Employee_10", "Employee_20", "Employee_50"]
+WARMUP_RUNS      = 1
+
+
+def percentile(values, pct):
+    """Linear-interpolation percentile (matches numpy's default 'linear' method)."""
+    values = sorted(values)
+    k = (len(values) - 1) * (pct / 100)
+    f = int(k)
+    c = min(f + 1, len(values) - 1)
+    if f == c:
+        return values[f]
+    return values[f] + (values[c] - values[f]) * (k - f)
 
 
 def generate_ntriples(n_triples):
@@ -110,49 +127,54 @@ def ingest(ntriples):
 QUERIES = {
     "Q1_simple_lookup": {
         "description": "Fetch a single entity by URI",
-        "sparql": f"""
+        "sparql_template": lambda entity: f"""
             SELECT ?s ?p ?o FROM <{GRAPH}>
             WHERE {{
-                BIND(<{BASE_URI}Company_42> AS ?s)
+                BIND(<{BASE_URI}{entity}> AS ?s)
                 ?s ?p ?o .
             }} LIMIT 1
-        """
+        """,
+        "param_values": LOOKUP_ENTITIES,
     },
     "Q2_one_hop": {
         "description": "1-hop: all direct relationships of an entity",
-        "sparql": f"""
+        "sparql_template": lambda entity: f"""
             SELECT ?p ?o FROM <{GRAPH}>
-            WHERE {{ <{BASE_URI}Company_42> ?p ?o . }}
+            WHERE {{ <{BASE_URI}{entity}> ?p ?o . }}
             LIMIT 50
-        """
+        """,
+        "param_values": LOOKUP_ENTITIES,
     },
     "Q3_two_hop": {
         "description": "2-hop: entity + connections of connections",
-        "sparql": f"""
+        "sparql_template": lambda entity: f"""
             SELECT ?mid ?p1 ?p2 ?end FROM <{GRAPH}>
             WHERE {{
-                <{BASE_URI}Company_42> ?p1 ?mid .
+                <{BASE_URI}{entity}> ?p1 ?mid .
                 ?mid ?p2 ?end .
             }} LIMIT 100
-        """
+        """,
+        "param_values": LOOKUP_ENTITIES,
     },
     "Q4_keyword_search": {
         "description": "Filter entities by URI substring",
-        "sparql": f"""
+        "sparql_template": lambda prefix: f"""
             SELECT DISTINCT ?s FROM <{GRAPH}>
             WHERE {{
                 ?s ?p ?o .
-                FILTER(CONTAINS(STR(?s), "Employee_1"))
+                FILTER(CONTAINS(STR(?s), "{prefix}"))
             }} LIMIT 50
-        """
+        """,
+        "param_values": KEYWORD_PREFIXES,
     },
     "Q5_aggregation": {
         "description": "Count relationships per predicate",
-        "sparql": f"""
+        "sparql_template": lambda _: f"""
             SELECT ?p (COUNT(*) AS ?cnt) FROM <{GRAPH}>
             WHERE {{ ?s ?p ?o . }}
             GROUP BY ?p ORDER BY DESC(?cnt) LIMIT 20
-        """
+        """,
+        "param_values": [None],  # whole-graph aggregation, no entity variation
     },
 }
 
@@ -162,22 +184,36 @@ def run_queries(n_runs):
     results = {}
 
     for qid, q in QUERIES.items():
-        print(f"[Neptune] {qid} ({n_runs} runs)...")
-        latencies = []
-        for _ in range(n_runs):
-            t0 = time.perf_counter()
-            r  = requests.get(url, params={"query": q["sparql"]},
+        param_values = q["param_values"]
+        n_entities   = len(param_values)
+        print(f"[Neptune] {qid} ({n_runs} runs x {n_entities} entities)...")
+
+        # Warmup: run each entity once, untimed, to prime the connection
+        # before measurements start.
+        for val in param_values:
+            sparql = q["sparql_template"](val)
+            r = requests.get(url, params={"query": sparql},
                               headers={"Accept": "application/sparql-results+json"})
             r.raise_for_status()
-            latencies.append((time.perf_counter() - t0) * 1000)
+
+        latencies = []
+        for val in param_values:
+            sparql = q["sparql_template"](val)
+            for _ in range(n_runs):
+                t0 = time.perf_counter()
+                r  = requests.get(url, params={"query": sparql},
+                                  headers={"Accept": "application/sparql-results+json"})
+                r.raise_for_status()
+                latencies.append((time.perf_counter() - t0) * 1000)
 
         results[qid] = {
             "description": q["description"],
             "avg_ms": round(sum(latencies) / len(latencies), 2),
             "min_ms": round(min(latencies), 2),
             "max_ms": round(max(latencies), 2),
+            "p95_ms": round(percentile(latencies, 95), 2),
         }
-        print(f"  avg {results[qid]['avg_ms']} ms")
+        print(f"  avg {results[qid]['avg_ms']} ms  p95 {results[qid]['p95_ms']} ms")
 
     return results
 
@@ -234,6 +270,15 @@ def main():
         "dataset":   {"triples": TRIPLE_COUNT, "source": "Synthetic enterprise (Wikidata-style)"},
         "ingestion": ingestion_stats,
         "queries":   query_stats,
+        "methodology": {
+            "query_runs":               QUERY_RUNS,
+            "entities_per_query":       len(LOOKUP_ENTITIES),
+            "warmup_runs":              WARMUP_RUNS,
+            "total_samples_per_query":  QUERY_RUNS * len(LOOKUP_ENTITIES),
+            "note": "Q1-Q4 vary parameters across 5 entities (100 samples/query). "
+                    "Q5 is a whole-graph aggregation with no entity variation "
+                    "(20 samples/query).",
+        },
         "cost":      cost_info,
         "dev_notes": [
             "Supports both SPARQL 1.1 and Gremlin — good flexibility for mixed workloads",

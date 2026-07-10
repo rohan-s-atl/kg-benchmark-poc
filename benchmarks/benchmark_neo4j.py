@@ -27,8 +27,25 @@ NEO4J_USER     = os.getenv("NEO4J_USER",     "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "<your-password>")
 
 TRIPLE_COUNT = 100_000
-QUERY_RUNS   = 5
+QUERY_RUNS   = 20
 RESULTS_DIR  = "results"
+
+# Entities used to vary query parameters so results aren't skewed by one
+# entity's particular position/degree in the graph.
+LOOKUP_ENTITIES  = ["Company_10", "Company_42", "Company_100", "Company_200", "Company_350"]
+KEYWORD_PREFIXES = ["Employee_1", "Employee_5", "Employee_10", "Employee_20", "Employee_50"]
+WARMUP_RUNS      = 1
+
+
+def percentile(values, pct):
+    """Linear-interpolation percentile (matches numpy's default 'linear' method)."""
+    values = sorted(values)
+    k = (len(values) - 1) * (pct / 100)
+    f = int(k)
+    c = min(f + 1, len(values) - 1)
+    if f == c:
+        return values[f]
+    return values[f] + (values[c] - values[f]) * (k - f)
 
 
 def generate_dataset(n_triples):
@@ -128,7 +145,8 @@ QUERIES = {
     "Q1_simple_lookup": {
         "description": "Fetch a single entity by name",
         "cypher": "MATCH (e:Entity {name: $name}) RETURN e LIMIT 1",
-        "params": {"name": "Company_42"},
+        "param_key": "name",
+        "param_values": LOOKUP_ENTITIES,
     },
     "Q2_one_hop": {
         "description": "1-hop: all direct relationships of an entity",
@@ -136,7 +154,8 @@ QUERIES = {
             MATCH (a:Entity {name: $name})-[r:RELATION]->(b:Entity)
             RETURN a.name, r.type, b.name LIMIT 50
         """,
-        "params": {"name": "Company_42"},
+        "param_key": "name",
+        "param_values": LOOKUP_ENTITIES,
     },
     "Q3_two_hop": {
         "description": "2-hop: entity + connections of connections",
@@ -144,7 +163,8 @@ QUERIES = {
             MATCH (a:Entity {name: $name})-[r1:RELATION]->(b:Entity)-[r2:RELATION]->(c:Entity)
             RETURN a.name, r1.type, b.name, r2.type, c.name LIMIT 100
         """,
-        "params": {"name": "Company_42"},
+        "param_key": "name",
+        "param_values": LOOKUP_ENTITIES,
     },
     "Q4_keyword_search": {
         "description": "Prefix search across entity names",
@@ -153,7 +173,8 @@ QUERIES = {
             WHERE e.name STARTS WITH $prefix
             RETURN e.name LIMIT 50
         """,
-        "params": {"prefix": "Employee_1"},
+        "param_key": "prefix",
+        "param_values": KEYWORD_PREFIXES,
     },
     "Q5_aggregation": {
         "description": "Count relationships per type",
@@ -162,7 +183,8 @@ QUERIES = {
             RETURN r.type, count(*) AS cnt
             ORDER BY cnt DESC LIMIT 20
         """,
-        "params": {},
+        "param_key": None,
+        "param_values": [None],  # whole-graph aggregation, no entity variation
     },
 }
 
@@ -171,20 +193,32 @@ def run_queries(driver, n_runs):
     results = {}
     with driver.session() as session:
         for qid, q in QUERIES.items():
-            print(f"[Neo4j] {qid} ({n_runs} runs)...")
+            param_values = q["param_values"]
+            n_entities   = len(param_values)
+            print(f"[Neo4j] {qid} ({n_runs} runs x {n_entities} entities)...")
+
+            # Warmup: run each entity once, untimed, to prime the connection
+            # and query plan cache before measurements start.
+            for val in param_values:
+                params = {q["param_key"]: val} if q["param_key"] else {}
+                list(session.run(q["cypher"], **params))
+
             latencies = []
-            for _ in range(n_runs):
-                t0 = time.perf_counter()
-                list(session.run(q["cypher"], **q["params"]))
-                latencies.append((time.perf_counter() - t0) * 1000)
+            for val in param_values:
+                params = {q["param_key"]: val} if q["param_key"] else {}
+                for _ in range(n_runs):
+                    t0 = time.perf_counter()
+                    list(session.run(q["cypher"], **params))
+                    latencies.append((time.perf_counter() - t0) * 1000)
 
             results[qid] = {
                 "description": q["description"],
                 "avg_ms": round(sum(latencies) / len(latencies), 2),
                 "min_ms": round(min(latencies), 2),
                 "max_ms": round(max(latencies), 2),
+                "p95_ms": round(percentile(latencies, 95), 2),
             }
-            print(f"  avg {results[qid]['avg_ms']} ms")
+            print(f"  avg {results[qid]['avg_ms']} ms  p95 {results[qid]['p95_ms']} ms")
     return results
 
 
@@ -239,6 +273,15 @@ def main():
         "dataset":   {"triples": TRIPLE_COUNT, "source": "Synthetic enterprise (Wikidata-style)"},
         "ingestion": ingestion_stats,
         "queries":   query_stats,
+        "methodology": {
+            "query_runs":               QUERY_RUNS,
+            "entities_per_query":       len(LOOKUP_ENTITIES),
+            "warmup_runs":              WARMUP_RUNS,
+            "total_samples_per_query":  QUERY_RUNS * len(LOOKUP_ENTITIES),
+            "note": "Q1-Q4 vary parameters across 5 entities (100 samples/query). "
+                    "Q5 is a whole-graph aggregation with no entity variation "
+                    "(20 samples/query).",
+        },
         "cost":      cost_info,
         "dev_notes": [
             "Cypher is intuitive — low barrier to entry for new developers",

@@ -1,0 +1,334 @@
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #22263a;
+  --border: #2e3347;
+  --text: #e8eaf0;
+  --muted: #8b91a8;
+  /* Validated categorical pair (dataviz skill, dark mode, surface #0f1117):
+     CVD ΔE 97–113, all contrast/lightness/chroma checks pass. */
+  --neo4j: #3987e5;
+  --neptune: #d95926;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* Header collapse: a plain manual click toggle (see app.js #header-toggle).
+   Not sticky/pinned and not scroll-linked in any way — scrolls away with
+   the rest of the page like a normal block. */
+.header {
+  position: relative;
+  background: linear-gradient(135deg, #12151f 0%, #1e2235 100%);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  padding: 32px 24px 24px;
+}
+
+.header.collapsed { padding: 12px 24px; }
+
+.header h1 {
+  font-weight: 700;
+  font-size: 1.7rem;
+}
+
+.header.collapsed h1 { font-size: 1.15rem; }
+
+.header .subtitle { color: var(--muted); margin-top: 8px; font-size: 0.92rem; }
+
+.header-details {
+  overflow: hidden;
+  max-height: 140px;
+}
+
+.header.collapsed .header-details {
+  max-height: 0;
+}
+
+.header-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translate(-50%, 50%);
+  width: 32px;
+  height: 20px;
+  border-radius: 0 0 10px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-top: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 21;
+}
+
+.header-toggle:hover { color: var(--text); }
+
+.header-toggle .chevron {
+  display: inline-block;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.header.collapsed .header-toggle .chevron { transform: rotate(180deg); }
+
+.stats-row {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.stat-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nav-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.header.collapsed .nav-tabs { margin-top: 10px; }
+
+.nav-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nav-tab:hover { color: var(--text); }
+
+.nav-tab.active {
+  background: var(--neo4j);
+  border-color: var(--neo4j);
+  color: #06120f;
+}
+
+#report-frame {
+  display: block;
+  width: 100%;
+  border: none;
+  background: var(--bg);
+  /* Height is set by app.js to match the iframe's actual content (same-origin,
+     so this works without postMessage) — the outer page scrolls as one piece
+     instead of the iframe scrolling internally. */
+}
+
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.ask-form {
+  display: flex;
+  gap: 10px;
+}
+
+#question-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+#question-input:focus { border-color: var(--neo4j); }
+
+#ask-button {
+  background: var(--neo4j);
+  color: #06120f;
+  border: none;
+  padding: 0 24px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+#ask-button:disabled { opacity: 0.5; cursor: not-allowed; }
+#ask-button:not(:disabled):hover { filter: brightness(1.1); }
+
+.examples {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.examples-label { color: var(--muted); font-size: 0.8rem; margin-right: 4px; }
+
+.example-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.example-chip:hover { border-color: var(--neo4j); color: var(--text); }
+
+#messages {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.turn { display: flex; flex-direction: column; gap: 14px; }
+
+.question-bubble {
+  align-self: flex-end;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  padding: 10px 16px;
+  border-radius: 14px 14px 2px 14px;
+  max-width: 80%;
+  font-size: 0.92rem;
+}
+
+.answer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  font-size: 0.95rem;
+}
+
+.answer-text { white-space: pre-wrap; }
+
+.answer-status {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.answer-status.error { color: #ff6b6b; font-style: normal; }
+.answer-status:empty { display: none; }
+
+.compare-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.compare-section-title {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+@media (max-width: 700px) {
+  .compare-panel { grid-template-columns: 1fr; }
+}
+
+.compare-col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: box-shadow 0.2s;
+}
+
+.compare-col.faster {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.neo4j-col { --accent: var(--neo4j); }
+.neptune-col { --accent: var(--neptune); }
+
+.compare-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.tool-name {
+  display: block;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.tool-lang {
+  display: block;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.latency-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--surface2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.compare-col.faster .latency-badge {
+  background: var(--accent);
+  color: var(--bg) !important;
+}
+
+.query-block {
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  font-size: 0.78rem;
+  color: #c8cfe0;
+}
+
+.query-block code {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

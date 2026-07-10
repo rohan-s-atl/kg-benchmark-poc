@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Knowledge Graph Agent Demo — Neo4j vs Neptune</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="header" id="site-header">
+    <h1>Knowledge Graph Agent Demo</h1>
+    <div class="header-details">
+      <p class="subtitle">Ask a question — Claude translates it into Cypher and SPARQL, runs both live, and answers from the results</p>
+      <div class="stats-row">
+        <span class="stat-pill"><span class="dot" style="background:var(--neo4j)"></span>Neo4j AuraDB</span>
+        <span class="stat-pill"><span class="dot" style="background:var(--neptune)"></span>AWS Neptune</span>
+        <span class="stat-pill">100K Triples</span>
+        <span class="stat-pill">5 Query Types</span>
+        <span class="stat-pill">Claude Opus 4.8</span>
+      </div>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="demo">Live Demo</button>
+      <button class="nav-tab" data-tab="report">Benchmark Report</button>
+    </div>
+    <button id="header-toggle" class="header-toggle" aria-label="Collapse header" aria-expanded="true">
+      <span class="chevron">&#9662;</span>
+    </button>
+  </div>
+
+  <div id="demo-tab" class="container">
+    <form id="ask-form" class="ask-form">
+      <input
+        id="question-input"
+        type="text"
+        placeholder="e.g. Which companies are in the Finance industry?"
+        autocomplete="off"
+        autofocus
+      />
+      <button type="submit" id="ask-button">Ask</button>
+    </form>
+
+    <div class="examples">
+      <span class="examples-label">Try:</span>
+      <button class="example-chip" data-q="Which companies are in the Finance industry?">Companies in Finance</button>
+      <button class="example-chip" data-q="Who does Employee_42 report to?">Employee_42's manager</button>
+      <button class="example-chip" data-q="What products does Company_10 produce?">Company_10's products</button>
+      <button class="example-chip" data-q="Which locations does Company_7 operate in?">Company_7's locations</button>
+      <button class="example-chip" data-q="How many employees does Company_100 have?">Company_100 headcount</button>
+    </div>
+
+    <div id="messages"></div>
+  </div>
+
+  <div id="report-tab" hidden>
+    <iframe id="report-frame" title="Benchmark Report"></iframe>
+  </div>
+
+  <template id="turn-template">
+    <div class="turn">
+      <div class="question-bubble"></div>
+      <div class="answer-card">
+        <div class="answer-text"></div>
+        <div class="answer-status"></div>
+      </div>
+      <div class="compare-panel" hidden>
+        <div class="compare-section-title">Query Comparison — same question, two graph databases, live</div>
+        <div class="compare-col neo4j-col">
+          <div class="compare-header">
+            <span>
+              <span class="tool-name">Neo4j</span>
+              <span class="tool-lang">Cypher</span>
+            </span>
+            <span class="latency-badge"></span>
+          </div>
+          <pre class="query-block cypher-block"><code></code></pre>
+        </div>
+        <div class="compare-col neptune-col">
+          <div class="compare-header">
+            <span>
+              <span class="tool-name">Neptune</span>
+              <span class="tool-lang">SPARQL</span>
+            </span>
+            <span class="latency-badge"></span>
+          </div>
+          <pre class="query-block sparql-block"><code></code></pre>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>
