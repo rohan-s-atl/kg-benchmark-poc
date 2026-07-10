@@ -44,6 +44,59 @@ reportFrame.addEventListener('load', () => {
   }
 });
 
+// "Run Benchmark" — replays the real captured console output (results/*.json)
+// as timed streaming lines. Does not re-run the actual benchmark scripts,
+// since those wipe the graph when they finish and would break the chat demo.
+const replayButton = document.getElementById('replay-button');
+const replayLog = document.getElementById('replay-log');
+
+function appendReplayLine(text, cssClass) {
+  const line = document.createElement('div');
+  if (cssClass) line.className = `replay-line ${cssClass}`;
+  line.textContent = text;
+  replayLog.appendChild(line);
+  replayLog.scrollTop = replayLog.scrollHeight;
+}
+
+replayButton.addEventListener('click', async () => {
+  replayButton.disabled = true;
+  replayLog.textContent = '';
+
+  try {
+    const response = await fetch('/api/benchmark-replay', { method: 'POST' });
+    if (!response.ok || !response.body) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'line') {
+          appendReplayLine(event.text, event.tool);
+        } else if (event.type === 'done') {
+          appendReplayLine('✓ Replay complete — full breakdown and charts below.', 'success');
+        }
+      }
+    }
+  } catch (err) {
+    appendReplayLine(`Error: ${err.message}`, 'error');
+  } finally {
+    replayButton.disabled = false;
+  }
+});
+
 navTabs.forEach((tab) => {
   tab.addEventListener('click', () => {
     navTabs.forEach((t) => t.classList.remove('active'));

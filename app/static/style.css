@@ -146,6 +146,66 @@ body {
      instead of the iframe scrolling internally. */
 }
 
+.replay-panel {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 24px 0;
+}
+
+.replay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.replay-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.replay-button {
+  background: var(--neo4j);
+  color: #06120f;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.replay-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.replay-button:not(:disabled):hover { filter: brightness(1.1); }
+
+.replay-log {
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  min-height: 60px;
+  max-height: 420px;
+  overflow-y: auto;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.replay-log:empty::before {
+  content: "Click \"Run Benchmark\" to replay the actual captured benchmark run, line by line.";
+  color: var(--muted);
+  font-style: italic;
+}
+
+.replay-line.neo4j { color: var(--neo4j); }
+.replay-line.neptune { color: var(--neptune); }
+.replay-line.error { color: #ff6b6b; }
+.replay-line.success { color: #4ade80; font-weight: 700; }
+
 .container {
   max-width: 980px;
   margin: 0 auto;

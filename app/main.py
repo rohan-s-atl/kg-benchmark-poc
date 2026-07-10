@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from app import neptune_relay
 from app.agent import generate_queries, stream_answer
+from app.benchmark_replay import build_replay_script
 from app.graph_clients import Neo4jClient, NeptuneClient
 
 NEO4J_URI = os.getenv("NEO4J_URI")
@@ -159,6 +160,25 @@ async def ask(req: AskRequest):
             yield json.dumps({"type": "error", "message": f"Answer generation failed: {e}"}) + "\n"
             return
 
+        yield json.dumps({"type": "done"}) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+@app.post("/api/benchmark-replay")
+async def benchmark_replay():
+    """
+    Replays the actual captured benchmark console output (results/*.json) as
+    timed streaming lines — for the "Run Benchmark" button. Does NOT re-run
+    the real benchmark scripts, since those wipe the graph when they finish,
+    which would break the live chat demo.
+    """
+    async def event_stream():
+        results = _report_module.load_results()
+        script = build_replay_script(results)
+        for delay, tool_key, text in script:
+            await asyncio.sleep(delay)
+            yield json.dumps({"type": "line", "tool": tool_key, "text": text}) + "\n"
         yield json.dumps({"type": "done"}) + "\n"
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")

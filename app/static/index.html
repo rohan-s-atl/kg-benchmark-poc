@@ -41,18 +41,25 @@
     </form>
 
     <div class="examples">
-      <span class="examples-label">Try:</span>
-      <button class="example-chip" data-q="Which companies are in the Finance industry?">Companies in Finance</button>
-      <button class="example-chip" data-q="Who does Employee_42 report to?">Employee_42's manager</button>
-      <button class="example-chip" data-q="What products does Company_10 produce?">Company_10's products</button>
-      <button class="example-chip" data-q="Which locations does Company_7 operate in?">Company_7's locations</button>
-      <button class="example-chip" data-q="How many employees does Company_100 have?">Company_100 headcount</button>
+      <span class="examples-label">Try (matches the benchmark's Q1-Q5):</span>
+      <button class="example-chip" data-q="Fetch the Company_42 entity">Q1: Simple Lookup</button>
+      <button class="example-chip" data-q="Show me all of Company_42's direct relationships">Q2: 1-Hop Traversal</button>
+      <button class="example-chip" data-q="What does Company_42 connect to, and what do those things connect to?">Q3: 2-Hop Traversal</button>
+      <button class="example-chip" data-q="Find all employees whose name starts with Employee_1">Q4: Keyword Search</button>
+      <button class="example-chip" data-q="Group all triples by predicate and count each group">Q5: Aggregation</button>
     </div>
 
     <div id="messages"></div>
   </div>
 
   <div id="report-tab" hidden>
+    <div class="replay-panel">
+      <div class="replay-header">
+        <span class="replay-title">Live Benchmark Replay</span>
+        <button id="replay-button" class="replay-button">&#9654; Run Benchmark</button>
+      </div>
+      <pre id="replay-log" class="replay-log"></pre>
+    </div>
     <iframe id="report-frame" title="Benchmark Report"></iframe>
   </div>
 
