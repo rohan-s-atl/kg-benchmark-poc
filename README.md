@@ -1,139 +1,336 @@
 # kg-benchmark-poc
 
-**Knowledge Graph Cost & Performance Benchmark — Neo4j AuraDB vs AWS Neptune**
+Knowledge graph benchmark and live agent demo comparing **Neo4j AuraDB** and
+**AWS Neptune** as context layers for enterprise AI agents.
 
-A live POC benchmarking two enterprise knowledge graph platforms as context layers for agentic AI systems. Built as part of Xebia's enterprise agentic AI research program.
+The project has two related workflows:
 
----
+- A repeatable benchmark that ingests a 100K-triple synthetic enterprise graph,
+  measures ingestion/query latency, writes JSON results, and generates an HTML
+  report.
+- A FastAPI demo app where Claude turns a natural-language question into both
+  Cypher and SPARQL, runs the queries against Neo4j and Neptune, compares
+  latency, and streams an answer grounded in the returned graph rows.
 
-## Key Findings
+## Current Captured Results
 
-Benchmarked on a 100K triple synthetic enterprise dataset (companies, employees, products, locations) simulating a real-world agentic context retrieval workload.
+The checked-in screenshots and `results/*.json` are from the captured benchmark
+run on June 22, 2026.
 
 | Metric | Neo4j AuraDB | AWS Neptune |
-|---|---|---|
-| Ingestion Time | **9.5s** | 15.0s |
-| Throughput | **10,524 t/s** | 6,662 t/s |
-| Avg Query Latency | **57ms** | 86ms |
-| Q1 Simple Lookup | 38ms | **17ms** |
-| Q2 1-Hop Traversal | 53ms | **17ms** |
-| Q3 2-Hop Traversal | 46ms | **21ms** |
-| Q4 Keyword Search | **40ms** | 271ms |
-| Q5 Aggregation | **108ms** | 105ms |
-| Free Tier | **Yes** | No |
-| Starting Price | **$65/mo** | $72/mo |
+| --- | ---: | ---: |
+| Ingestion time | **9.502 s** | 15.010 s |
+| Ingestion throughput | **10,523.6 triples/s** | 6,662.0 triples/s |
+| Q1 simple lookup avg | 38.43 ms | **17.19 ms** |
+| Q2 one-hop traversal avg | 52.65 ms | **17.23 ms** |
+| Q3 two-hop traversal avg | 45.89 ms | **20.90 ms** |
+| Q4 keyword search avg | **40.16 ms** | 270.53 ms |
+| Q5 aggregation avg | 108.12 ms | **104.92 ms** |
+| Small starting estimate | **$65/mo** | $72/mo |
+| Free tier for this POC | **Yes** | No |
 
-**Neo4j wins:** ingestion speed, keyword search (6x faster), free tier availability.
-**Neptune wins:** graph traversal queries Q1-Q3 (2x faster), better for RDF/SPARQL workloads.
+High-level takeaways from this run:
 
----
+- Neo4j was faster for ingestion and prefix/keyword-style entity search.
+- Neptune was faster for direct URI lookups and one/two-hop SPARQL traversals.
+- Neo4j had lower setup friction for a local POC because AuraDB is reachable
+  directly and has a free tier.
+- Neptune is a strong fit for RDF/SPARQL workloads, but the normal VPC-only
+  access pattern adds demo and local-development complexity.
 
 ## Screenshots
 
 ### Executive Summary
+
 ![Executive Summary](screenshots/exec-summary.png)
 
 ### Ingestion Performance
+
 ![Ingestion Performance](screenshots/ingest-perf.png)
 
 ### Query Latency Benchmark
+
 ![Query Latency](screenshots/query-latency.png)
 
 ### Cost Analysis
+
 ![Cost Analysis](screenshots/cost-analysis.png)
 
----
+## Repository Layout
 
-## Repo Structure
-
-```
+```text
 kg-benchmark-poc/
-├── run_all.py                  # Master orchestrator — run this
-├── generate_report.py          # HTML report generator
-├── requirements.txt
-├── .env                        # Your credentials (never commit this)
-├── .gitignore
-├── benchmarks/
-│   ├── benchmark_neo4j.py      # Neo4j AuraDB benchmark
-│   └── benchmark_neptune.py    # AWS Neptune benchmark
-├── results/                    # Auto-created — JSON outputs + HTML report
-└── screenshots/                # Report screenshots for README
+|-- app/
+|   |-- main.py                 # FastAPI app and streaming API endpoints
+|   |-- agent.py                # Claude query generation and answer streaming
+|   |-- graph_clients.py        # Thin Neo4j and Neptune query clients
+|   |-- neptune_relay.py        # In-memory relay queue for VPC-only Neptune
+|   |-- benchmark_replay.py     # Timed replay from captured results JSON
+|   `-- static/                 # Browser UI for chat, comparison, and report
+|-- benchmarks/
+|   |-- benchmark_neo4j.py      # Neo4j ingest/query benchmark
+|   `-- benchmark_neptune.py    # Neptune ingest/query benchmark
+|-- notebook/
+|   |-- seed_neptune_data.py    # Neptune seed script for notebook/VPC use
+|   `-- neptune_relay_worker.py # Notebook-side relay worker for live demo
+|-- generate_report.py          # Builds results/knowledge_graph_benchmark_report.html
+|-- run_all.py                  # Benchmark orchestrator
+|-- seed_demo_data.py           # Seeds Neo4j for the live demo without cleanup
+|-- requirements.txt
+|-- screenshots/
+`-- results/                    # Generated benchmark JSON/HTML outputs
 ```
 
----
+## Prerequisites
 
-## Quickstart
+- Python 3.10 or newer
+- A Neo4j AuraDB instance
+- An Anthropic API key for the live demo
+- Optional: an AWS Neptune cluster for Neptune benchmarks and live comparison
+
+Install dependencies:
 
 ```bash
-# 1. Install dependencies
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-# 2. Set credentials in .env
+On macOS/Linux, activate with `source .venv/bin/activate` instead.
+
+## Environment
+
+Create a local `.env` file in the repo root:
+
+```env
 NEO4J_URI=neo4j+s://<your-instance>.databases.neo4j.io
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=<your-password>
 
-NEPTUNE_ENDPOINT=https://<your-cluster>.cluster.us-east-1.neptune.amazonaws.com:8182
-NEPTUNE_REGION=us-east-1
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
 
-# 3. Run Neo4j locally
-python run_all.py --skip-neptune
+# Only needed when querying Neptune directly from the app.
+NEPTUNE_ENDPOINT=https://<your-cluster>.cluster.<region>.neptune.amazonaws.com:8182
 
-# 4. Run Neptune from a Neptune Notebook (must be inside AWS VPC)
-#    Upload benchmarks/benchmark_neptune.py to the notebook and run:
-#    python benchmark_neptune.py
-#    Download results/neptune_results.json and place it in results/
-
-# 5. Generate the report
-python generate_report.py
-
-# 6. Open the report
-open results/knowledge_graph_benchmark_report.html
+# Optional relay mode for VPC-only Neptune access.
+NEPTUNE_RELAY=false
+NEPTUNE_RELAY_TOKEN=<shared-secret>
+NEPTUNE_RELAY_TIMEOUT_S=45
 ```
 
----
+`.env` is ignored by git. Do not commit real database URLs, relay tokens, or API
+keys.
+
+## Run the Live Demo App
+
+Seed Neo4j with the benchmark-shaped graph and leave it populated:
+
+```bash
+python seed_demo_data.py
+```
+
+If the graph already contains demo data and you want to replace it:
+
+```bash
+python seed_demo_data.py --force
+```
+
+Start the app:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000`.
+
+The UI has two tabs:
+
+- **Live Demo**: ask a natural-language question. The backend generates Cypher
+  and SPARQL, runs both graph queries, displays latency, and streams the final
+  Claude answer.
+- **Benchmark Report**: embeds the generated HTML report and includes a
+  "Run Benchmark" replay button. The replay uses the captured `results/*.json`
+  numbers; it does not re-run destructive benchmark scripts.
+
+## Neptune Relay Mode
+
+AWS Neptune is usually reachable only from inside its VPC. For a local live demo,
+the repo includes a polling relay:
+
+1. Expose the local FastAPI app with a tunnel such as `ngrok http 8000`.
+2. Set `NEPTUNE_RELAY=true` and `NEPTUNE_RELAY_TOKEN=<shared-secret>` in local
+   `.env`, then restart `uvicorn`.
+3. Edit `notebook/neptune_relay_worker.py` inside a Neptune Notebook or other
+   VPC-connected environment:
+   - Set `LOCAL_APP_URL` to the public tunnel URL.
+   - Set `NEPTUNE_ENDPOINT` to the Neptune writer endpoint.
+   - Set `RELAY_TOKEN` to the same value as `NEPTUNE_RELAY_TOKEN`.
+4. Run the worker inside the VPC:
+
+```bash
+python3 neptune_relay_worker.py
+```
+
+When the app receives a question, it queues the generated SPARQL query. The
+worker polls `/api/neptune-pending`, runs SPARQL inside the VPC, and posts rows
+back to `/api/neptune-result`.
+
+To keep Neptune populated for the live relay demo, upload and run:
+
+```bash
+python3 seed_neptune_data.py
+```
+
+Use `python3 seed_neptune_data.py --force` to drop and re-seed the named graph.
+
+## Run Benchmarks
+
+Run Neo4j only from your local machine:
+
+```bash
+python run_all.py --skip-neptune
+```
+
+Run both benchmarks:
+
+```bash
+python run_all.py
+```
+
+Run Neptune only:
+
+```bash
+python run_all.py --skip-neo4j
+```
+
+Important benchmark behavior:
+
+- `benchmarks/benchmark_neo4j.py` ingests data, measures queries, writes
+  `results/neo4j_results.json`, and then deletes the benchmark graph.
+- `benchmarks/benchmark_neptune.py` ingests data, measures queries, writes
+  `results/neptune_results.json`, and then drops the named graph.
+- Use `seed_demo_data.py` and `notebook/seed_neptune_data.py` when you want data
+  to remain available for the live app.
+
+Neptune benchmark notes:
+
+- Run Neptune code from inside the Neptune VPC, typically a Neptune Notebook.
+- The Neptune scripts use SPARQL over HTTP and assume IAM authentication is not
+  required for the endpoint they call.
+- `benchmarks/benchmark_neptune.py` and `notebook/seed_neptune_data.py` contain
+  a `NEPTUNE_ENDPOINT` constant that must be changed for your cluster before
+  running in a notebook.
+
+## Generate the Report
+
+If result JSON files already exist:
+
+```bash
+python generate_report.py
+```
+
+The report is written to:
+
+```text
+results/knowledge_graph_benchmark_report.html
+```
+
+When the FastAPI app is running, the same report is also available at:
+
+```text
+http://127.0.0.1:8000/report
+```
 
 ## Benchmark Methodology
 
-All queries simulate what an enterprise AI agent would actually do when retrieving context from a knowledge graph:
+Both databases use the same synthetic enterprise graph shape:
 
-| Query | What it simulates |
-|---|---|
-| Q1 Simple Lookup | Agent fetching a single entity's data |
-| Q2 1-Hop Traversal | Agent finding direct relationships of an entity |
-| Q3 2-Hop Traversal | Agent exploring subgraph context |
-| Q4 Keyword Search | Agent searching by partial entity name |
-| Q5 Aggregation | Agent summarizing relationship patterns across the graph |
+- 500 companies
+- 2,000 employees
+- 1,000 products
+- 200 locations
+- 8 industries
+- 100,000 generated relationships/triples
 
-Dataset: 100K synthetic enterprise triples (Wikidata-style) — companies, employees, products, locations, and their relationships. Same dataset used on both platforms for a fair comparison.
+Relationship types:
 
----
+```text
+employs, produces, located_in, partners_with, operates_in,
+reports_to, works_on, supplied_by, sold_in
+```
 
-## Neptune Setup Note
+The five query workloads model common context-retrieval patterns for AI agents:
 
-Neptune requires you to be inside your AWS VPC to connect. For this POC, run `benchmark_neptune.py` from a **Neptune Notebook** (AWS Console → Neptune → Notebooks). Neo4j runs fine locally.
+| Query | Purpose |
+| --- | --- |
+| Q1 simple lookup | Fetch one entity by name/URI |
+| Q2 one-hop traversal | Retrieve direct relationships for an entity |
+| Q3 two-hop traversal | Expand from an entity to neighbors-of-neighbors |
+| Q4 keyword search | Find entities by name/prefix |
+| Q5 aggregation | Summarize relationship counts by type |
 
-IAM authentication must be **disabled** on the Neptune cluster for this script to work without additional AWS credential configuration.
+For Q1-Q4, each query is run across five parameter values with warmup runs before
+timing. Q5 is a whole-graph aggregation.
 
----
+## Data Models
 
-## Cost Summary
+Neo4j stores the graph as a property graph:
 
-| | Neo4j AuraDB | AWS Neptune |
-|---|---|---|
-| Free tier | 200K nodes, 400K rels | None |
-| POC cost | $0 | ~$0 (AWS free trial) |
-| Production (small) | $65/mo (1 GiB) | $72/mo (1 NCU serverless) |
-| Production (medium) | $260/mo (4 GiB) | $252/mo (provisioned r6g.large) |
+```cypher
+(:Entity {name: "Company_42"})-[:RELATION {type: "employs"}]->(:Entity {name: "Employee_7"})
+```
 
----
+Neptune stores the graph as RDF triples in a named graph:
+
+```text
+<http://enterprise.poc/entity/Company_42>
+<http://enterprise.poc/entity/employs>
+<http://enterprise.poc/entity/Employee_7>
+```
+
+Named graph:
+
+```text
+http://enterprise.poc/graph
+```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/api/ask` | POST | Streams generated queries, query latency, and answer tokens as NDJSON |
+| `/api/benchmark-replay` | POST | Streams a timed replay from saved benchmark results |
+| `/api/neptune-pending` | GET | Relay worker polls for queued SPARQL jobs |
+| `/api/neptune-result` | POST | Relay worker submits Neptune rows/errors |
+| `/report` | GET | Renders the generated benchmark report HTML |
+| `/` | GET | Serves the static demo UI |
+
+## Troubleshooting
+
+- **`Missing NEO4J_URI / NEO4J_PASSWORD`**: check `.env` and make sure
+  `python-dotenv` is installed.
+- **Neo4j seed refuses to run**: the graph already has `Entity` nodes. Use
+  `python seed_demo_data.py --force` if you want to wipe and re-seed them.
+- **Neptune connection fails locally**: run inside the Neptune VPC or use relay
+  mode.
+- **Live app returns query-generation errors**: verify `ANTHROPIC_API_KEY` is
+  set and the configured model in `app/agent.py` is available to the account.
+- **Benchmark report is missing**: run at least one benchmark or place
+  `neo4j_results.json` / `neptune_results.json` under `results/`, then run
+  `python generate_report.py`.
 
 ## Tech Stack
 
-- **Neo4j AuraDB** — Cypher, property graph model, Python `neo4j` driver
-- **AWS Neptune Serverless** — SPARQL 1.1, RDF triple model, `SPARQLWrapper` + `requests`
-- **Report** — Self-contained HTML with Chart.js, no external dependencies beyond CDN
+- FastAPI and Uvicorn for the local web app
+- Anthropic Python SDK for query generation and answer streaming
+- Neo4j Python driver for AuraDB
+- Requests / SPARQL HTTP for Neptune
+- Chart.js in a generated self-contained HTML report
 
----
+## Project Status
 
-*Xebia Agentic AI Research · June 2026*
+This is a proof of concept for enterprise agentic AI research. It is optimized
+for repeatable benchmarking and clear demo flows, not for production hardening.
+Before adapting it for production, move secrets out of source-controlled scripts,
+add durable relay storage, add authentication to the app, and replace SPARQL
+UPDATE ingestion with Neptune Bulk Loader for large datasets.
