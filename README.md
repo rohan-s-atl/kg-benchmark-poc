@@ -305,20 +305,6 @@ http://enterprise.poc/graph
 | `/report` | GET | Renders the generated benchmark report HTML |
 | `/` | GET | Serves the static demo UI |
 
-## Troubleshooting
-
-- **`Missing NEO4J_URI / NEO4J_PASSWORD`**: check `.env` and make sure
-  `python-dotenv` is installed.
-- **Neo4j seed refuses to run**: the graph already has `Entity` nodes. Use
-  `python seed_demo_data.py --force` if you want to wipe and re-seed them.
-- **Neptune connection fails locally**: run inside the Neptune VPC or use relay
-  mode.
-- **Live app returns query-generation errors**: verify `ANTHROPIC_API_KEY` is
-  set and the configured model in `app/agent.py` is available to the account.
-- **Benchmark report is missing**: run at least one benchmark or place
-  `neo4j_results.json` / `neptune_results.json` under `results/`, then run
-  `python generate_report.py`.
-
 ## Tech Stack
 
 - FastAPI and Uvicorn for the local web app
@@ -326,11 +312,3 @@ http://enterprise.poc/graph
 - Neo4j Python driver for AuraDB
 - Requests / SPARQL HTTP for Neptune
 - Chart.js in a generated self-contained HTML report
-
-## Project Status
-
-This is a proof of concept for enterprise agentic AI research. It is optimized
-for repeatable benchmarking and clear demo flows, not for production hardening.
-Before adapting it for production, move secrets out of source-controlled scripts,
-add durable relay storage, add authentication to the app, and replace SPARQL
-UPDATE ingestion with Neptune Bulk Loader for large datasets.
